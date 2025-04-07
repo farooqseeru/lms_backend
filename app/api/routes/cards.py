@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Security
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -7,25 +7,34 @@ from app.api.schemas.schemas import (
 )
 from app.domain.services.security_service import StandardSecurityService
 from app.infrastructure.database.base import get_db
+from app.core.auth.cognito import get_current_user, requires_scope, CognitoToken
 
 router = APIRouter()
 
 
 @router.post("/", response_model=DataResponse, status_code=status.HTTP_201_CREATED)
-def create_card(
+async def create_card(
     card_in: CardCreate,
     request: Request,
+    current_user: CognitoToken = Security(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Create a new card for a user and loan account."""
     from app.domain.models.models import Card as CardModel, User, LoanAccount
     
-    # Check if user exists
+    # Check if user exists and matches the authenticated user
     user = db.query(User).filter(User.id == card_in.user_id, User.is_deleted == False).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User with ID {card_in.user_id} not found"
+        )
+    
+    # Ensure the authenticated user can only create cards for themselves
+    if user.email != current_user.email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only create cards for your own account"
         )
     
     # Check if loan account exists and belongs to the user
@@ -65,7 +74,7 @@ def create_card(
         entity_type="Card",
         entity_id=db_card.id,
         ip_address=request.client.host,
-        details=f"{card_in.type.capitalize()} card created"
+        details=f"Created {card_in.type} card"
     )
     
     # Convert SQLAlchemy model to Pydantic model
@@ -74,12 +83,13 @@ def create_card(
 
 
 @router.get("/{card_id}", response_model=DataResponse)
-def get_card(
+async def get_card(
     card_id: int,
+    current_user: CognitoToken = Security(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get card details by ID."""
-    from app.domain.models.models import Card as CardModel
+    from app.domain.models.models import Card as CardModel, User
     
     card = db.query(CardModel).filter(CardModel.id == card_id).first()
     if not card:
@@ -88,77 +98,145 @@ def get_card(
             detail="Card not found"
         )
     
+    # Check if the card belongs to the authenticated user
+    user = db.query(User).filter(User.id == card.user_id, User.is_deleted == False).first()
+    if not user or user.email != current_user.email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view your own cards"
+        )
+    
     # Convert SQLAlchemy model to Pydantic model
     card_out = Card.model_validate(card)
     return {"status": "success", "data": card_out.model_dump()}
 
 
 @router.put("/{card_id}/lock", response_model=DataResponse)
-def lock_card(
+async def lock_card(
     card_id: int,
     request: Request,
+    current_user: CognitoToken = Security(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Lock a card."""
-    security_service = StandardSecurityService(db)
+    from app.domain.models.models import Card as CardModel, User
+    from datetime import datetime
     
-    try:
-        result = security_service.lock_card(card_id)
-    except ValueError as e:
+    card = db.query(CardModel).filter(CardModel.id == card_id).first()
+    if not card:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            detail="Card not found"
         )
     
-    if not result["success"]:
+    # Check if the card belongs to the authenticated user
+    user = db.query(User).filter(User.id == card.user_id, User.is_deleted == False).first()
+    if not user or user.email != current_user.email:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result["message"]
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only lock your own cards"
         )
     
-    return {"status": "success", "data": result}
+    card.status = "locked"
+    card.updated_at = datetime.utcnow()
+    db.commit()
+    
+    # Log security event
+    security_service = StandardSecurityService(db)
+    security_service.log_security_event(
+        user_id=card.user_id,
+        action="CARD_LOCK",
+        entity_type="Card",
+        entity_id=card.id,
+        ip_address=request.client.host,
+        details="Card locked"
+    )
+    
+    return {
+        "status": "success",
+        "data": {
+            "success": True,
+            "card_id": card.id,
+            "status": card.status,
+            "timestamp": card.updated_at
+        }
+    }
 
 
 @router.put("/{card_id}/unlock", response_model=DataResponse)
-def unlock_card(
+async def unlock_card(
     card_id: int,
     request: Request,
+    current_user: CognitoToken = Security(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Unlock a card."""
-    security_service = StandardSecurityService(db)
+    from app.domain.models.models import Card as CardModel, User
+    from datetime import datetime
     
-    try:
-        result = security_service.unlock_card(card_id)
-    except ValueError as e:
+    card = db.query(CardModel).filter(CardModel.id == card_id).first()
+    if not card:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            detail="Card not found"
         )
     
-    if not result["success"]:
+    # Check if the card belongs to the authenticated user
+    user = db.query(User).filter(User.id == card.user_id, User.is_deleted == False).first()
+    if not user or user.email != current_user.email:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result["message"]
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only unlock your own cards"
         )
     
-    return {"status": "success", "data": result}
+    card.status = "active"
+    card.updated_at = datetime.utcnow()
+    db.commit()
+    
+    # Log security event
+    security_service = StandardSecurityService(db)
+    security_service.log_security_event(
+        user_id=card.user_id,
+        action="CARD_UNLOCK",
+        entity_type="Card",
+        entity_id=card.id,
+        ip_address=request.client.host,
+        details="Card unlocked"
+    )
+    
+    return {
+        "status": "success",
+        "data": {
+            "success": True,
+            "card_id": card.id,
+            "status": card.status,
+            "timestamp": card.updated_at
+        }
+    }
 
 
 @router.get("/users/{user_id}", response_model=DataResponse)
-def get_user_cards(
+async def get_user_cards(
     user_id: int,
+    current_user: CognitoToken = Security(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get all cards for a user."""
     from app.domain.models.models import Card as CardModel, User
     
-    # Check if user exists
+    # Check if user exists and matches the authenticated user
     user = db.query(User).filter(User.id == user_id, User.is_deleted == False).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User with ID {user_id} not found"
+        )
+    
+    # Ensure the authenticated user can only view their own cards
+    if user.email != current_user.email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view your own cards"
         )
     
     # Get cards

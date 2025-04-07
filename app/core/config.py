@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
+    # AWS Cognito settings
+    AWS_REGION: str = os.getenv("AWS_REGION", "us-east-1")
+    COGNITO_USER_POOL_ID: str = os.getenv("COGNITO_USER_POOL_ID", "")
+    COGNITO_APP_CLIENT_ID: str = os.getenv("COGNITO_APP_CLIENT_ID", "")
+    
     # Default APR settings
     DEFAULT_APR: float = 25.0
     
@@ -39,6 +44,9 @@ class Settings(BaseSettings):
     # APR reduction settings
     APR_REDUCTION_AFTER_REPAYMENTS: int = 3  # Number of good repayments before APR reduction
     APR_REDUCTION_AMOUNT: float = 2.0  # Reduce APR by 2% after good repayments
+    
+    class Config:
+        case_sensitive = True
 
 
 settings = Settings()
