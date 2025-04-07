@@ -190,6 +190,30 @@ class LMSClient:
         print(f"Unlocked card {card_id}")
         return result
 
+    def get_card(self, card_id: int) -> Dict:
+        """Get card details by ID."""
+        card = self._make_request("GET", f"/cards/{card_id}")
+        print(f"Retrieved card details for card {card_id}")
+        return card
+
+    def get_all_cards(self, user_id: int) -> List[Dict]:
+        """Get all cards for a user."""
+        cards = self._make_request("GET", f"/cards/users/{user_id}")
+        print(f"Retrieved all cards for user {user_id}")
+        return cards
+
+    def get_all_loan_accounts(self, user_id: int) -> List[Dict]:
+        """Get all loan accounts for a user."""
+        loan_accounts = self._make_request("GET", f"/loan-accounts/users/{user_id}")
+        print(f"Retrieved all loan accounts for user {user_id}")
+        return loan_accounts
+
+    def get_loan_account_transactions(self, loan_account_id: int) -> List[Dict]:
+        """Get all transactions for a loan account."""
+        transactions = self._make_request("GET", f"/transactions/loan-accounts/{loan_account_id}/transactions")
+        print(f"Retrieved all transactions for loan account {loan_account_id}")
+        return transactions
+
     # Repayment Management
     def get_repayment_options(self, loan_account_id: int) -> Dict:
         """Get repayment options for a loan account."""
@@ -315,6 +339,16 @@ def populate_sample_data():
         time.sleep(1)  # Small delay for demonstration
         client.unlock_card(virtual_card["id"])
 
+        # Get card details
+        print("\n=== Getting Card Details ===")
+        card_details = client.get_card(virtual_card["id"])
+        print(f"Card details: {json.dumps(card_details, indent=2)}")
+
+        # Get all cards for user
+        print("\n=== Getting All Cards for User ===")
+        all_cards = client.get_all_cards(user1["id"])
+        print(f"All cards for user: {json.dumps(all_cards, indent=2)}")
+
         print("\n=== Simulating Account Activity ===")
         # Add some purchases to build up a balance
         purchases = [
@@ -348,6 +382,16 @@ def populate_sample_data():
         # Get updated loan account
         loan_account1 = client.get_loan_account(loan_account1["id"])
         print(f"Balance after interest and fees: £{loan_account1['current_balance']:.2f}")
+
+        # Get all loan accounts for user
+        print("\n=== Getting All Loan Accounts for User ===")
+        all_loan_accounts = client.get_all_loan_accounts(user1["id"])
+        print(f"All loan accounts for user: {json.dumps(all_loan_accounts, indent=2)}")
+
+        # Get loan account transactions
+        print("\n=== Getting Loan Account Transactions ===")
+        transactions = client.get_loan_account_transactions(loan_account1["id"])
+        print(f"All transactions for loan account: {json.dumps(transactions, indent=2)}")
 
         print("\n=== Demonstrating Repayment Options ===")
         # Get repayment options

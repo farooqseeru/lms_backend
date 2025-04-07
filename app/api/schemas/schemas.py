@@ -119,7 +119,16 @@ class CardInDB(CardBase):
 
 
 class Card(CardInDB):
+    """Card schema for responses."""
     pass
+
+
+class CardList(BaseModel):
+    """Schema for a list of cards."""
+    cards: List[Card]
+
+    class Config:
+        from_attributes = True
 
 
 # Loan Account schemas
@@ -158,7 +167,16 @@ class LoanAccountInDB(LoanAccountBase):
 
 
 class LoanAccount(LoanAccountInDB):
+    """Loan account schema for responses."""
     pass
+
+
+class LoanAccountList(BaseModel):
+    """Schema for a list of loan accounts."""
+    loan_accounts: List[LoanAccount]
+
+    class Config:
+        from_attributes = True
 
 
 # Repayment schemas
