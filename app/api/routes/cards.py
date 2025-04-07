@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from app.api.schemas.schemas import (
-    CardCreate, Card, CardUpdate, DataResponse, ErrorResponse
+    CardCreate, Card, CardUpdate, DataResponse, ErrorResponse, CardList
 )
 from app.domain.services.security_service import StandardSecurityService
 from app.infrastructure.database.base import get_db
@@ -145,7 +145,7 @@ def unlock_card(
     return {"status": "success", "data": result}
 
 
-@router.get("/users/{user_id}/cards", response_model=DataResponse)
+@router.get("/users/{user_id}", response_model=DataResponse)
 def get_user_cards(
     user_id: int,
     db: Session = Depends(get_db)
@@ -165,5 +165,5 @@ def get_user_cards(
     cards = db.query(CardModel).filter(CardModel.user_id == user_id).all()
     
     # Convert SQLAlchemy models to Pydantic models
-    cards_out = [Card.model_validate(card).model_dump() for card in cards]
-    return {"status": "success", "data": cards_out}
+    cards_out = [Card.model_validate(card) for card in cards]
+    return {"status": "success", "data": {"cards": cards_out}}

@@ -110,7 +110,7 @@ def get_loan_account_transactions(
     
     # Convert SQLAlchemy models to Pydantic models
     transactions_out = [Transaction.model_validate(transaction).model_dump() for transaction in transactions]
-    return {"status": "success", "data": transactions_out}
+    return {"status": "success", "data": {"transactions": transactions_out}}
 
 
 @router.get("/loan-accounts/{loan_account_id}/statement", response_model=DataResponse)

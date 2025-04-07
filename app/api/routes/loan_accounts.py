@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from app.api.schemas.schemas import (
-    LoanAccountCreate, LoanAccount, LoanAccountUpdate, DataResponse, ErrorResponse
+    LoanAccountCreate, LoanAccount as LoanAccountSchema, LoanAccountUpdate, DataResponse, ErrorResponse, LoanAccountList
 )
 from app.domain.services.loan_account_service import StandardLoanAccountService
 from app.domain.services.security_service import StandardSecurityService
@@ -45,7 +45,7 @@ def create_loan_account(
     )
     
     # Convert SQLAlchemy model to Pydantic model
-    loan_account_out = LoanAccount.model_validate(loan_account)
+    loan_account_out = LoanAccountSchema.model_validate(loan_account)
     return {"status": "success", "data": loan_account_out.model_dump()}
 
 
@@ -66,7 +66,7 @@ def get_loan_account(
         )
     
     # Convert SQLAlchemy model to Pydantic model
-    loan_account_out = LoanAccount.model_validate(loan_account)
+    loan_account_out = LoanAccountSchema.model_validate(loan_account)
     return {"status": "success", "data": loan_account_out.model_dump()}
 
 
@@ -115,7 +115,7 @@ def update_loan_account(
     )
     
     # Convert SQLAlchemy model to Pydantic model
-    loan_account_out = LoanAccount.model_validate(updated_loan_account)
+    loan_account_out = LoanAccountSchema.model_validate(updated_loan_account)
     return {"status": "success", "data": loan_account_out.model_dump()}
 
 
@@ -201,3 +201,27 @@ def apply_late_fee(
         )
     
     return {"status": "success", "data": fee_result}
+
+
+@router.get("/loan-accounts/users/{user_id}", response_model=DataResponse)
+def get_user_loan_accounts(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get all loan accounts for a user."""
+    from app.domain.models.models import LoanAccount, User
+    
+    # Check if user exists
+    user = db.query(User).filter(User.id == user_id, User.is_deleted == False).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with ID {user_id} not found"
+        )
+    
+    # Get loan accounts
+    loan_accounts = db.query(LoanAccount).filter(LoanAccount.user_id == user_id).all()
+    
+    # Convert SQLAlchemy models to Pydantic models
+    loan_accounts_out = [LoanAccountSchema.model_validate(loan_account) for loan_account in loan_accounts]
+    return {"status": "success", "data": {"loan_accounts": loan_accounts_out}}
