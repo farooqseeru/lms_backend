@@ -28,7 +28,7 @@ def root():
     return {"status": "success", "message": "Loan Management System API is running"}
 
 
-@app.get("/health")
+@app.get(f"{settings.API_V1_STR}/health")
 def health_check():
     """Health check endpoint."""
     return {"status": "success", "message": "Service is healthy"}

@@ -1,0 +1,238 @@
+From ea89a97fa6a1eadbd91a8327c21c5c6817006e68 Mon Sep 17 00:00:00 2001
+From: farooqseeru <farooqseeru@gmail.com>
+Date: Mon, 7 Apr 2025 15:12:59 +0400
+Subject: [PATCH] Fix API endpoints and response validation issues
+
+---
+ app/api/routes/cards.py         |  8 +++---
+ app/api/routes/loan_accounts.py | 32 +++++++++++++++++++++---
+ app/api/routes/transactions.py  |  2 +-
+ app/api/schemas/schemas.py      | 18 ++++++++++++++
+ test_script.py                  | 44 +++++++++++++++++++++++++++++++++
+ 5 files changed, 95 insertions(+), 9 deletions(-)
+
+diff --git a/app/api/routes/cards.py b/app/api/routes/cards.py
+index cffae8c..7786092 100644
+--- a/app/api/routes/cards.py
++++ b/app/api/routes/cards.py
+@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
+ from typing import List
+ 
+ from app.api.schemas.schemas import (
+-    CardCreate, Card, CardUpdate, DataResponse, ErrorResponse
++    CardCreate, Card, CardUpdate, DataResponse, ErrorResponse, CardList
+ )
+ from app.domain.services.security_service import StandardSecurityService
+ from app.infrastructure.database.base import get_db
+@@ -145,7 +145,7 @@ def unlock_card(
+     return {"status": "success", "data": result}
+ 
+ 
+-@router.get("/users/{user_id}/cards", response_model=DataResponse)
++@router.get("/users/{user_id}", response_model=DataResponse)
+ def get_user_cards(
+     user_id: int,
+     db: Session = Depends(get_db)
+@@ -165,5 +165,5 @@ def get_user_cards(
+     cards = db.query(CardModel).filter(CardModel.user_id == user_id).all()
+     
+     # Convert SQLAlchemy models to Pydantic models
+-    cards_out = [Card.model_validate(card).model_dump() for card in cards]
+-    return {"status": "success", "data": cards_out}
++    cards_out = [Card.model_validate(card) for card in cards]
++    return {"status": "success", "data": {"cards": cards_out}}
+diff --git a/app/api/routes/loan_accounts.py b/app/api/routes/loan_accounts.py
+index 1832919..109e551 100644
+--- a/app/api/routes/loan_accounts.py
++++ b/app/api/routes/loan_accounts.py
+@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
+ from typing import List
+ 
+ from app.api.schemas.schemas import (
+-    LoanAccountCreate, LoanAccount, LoanAccountUpdate, DataResponse, ErrorResponse
++    LoanAccountCreate, LoanAccount as LoanAccountSchema, LoanAccountUpdate, DataResponse, ErrorResponse, LoanAccountList
+ )
+ from app.domain.services.loan_account_service import StandardLoanAccountService
+ from app.domain.services.security_service import StandardSecurityService
+@@ -45,7 +45,7 @@ def create_loan_account(
+     )
+     
+     # Convert SQLAlchemy model to Pydantic model
+-    loan_account_out = LoanAccount.model_validate(loan_account)
++    loan_account_out = LoanAccountSchema.model_validate(loan_account)
+     return {"status": "success", "data": loan_account_out.model_dump()}
+ 
+ 
+@@ -66,7 +66,7 @@ def get_loan_account(
+         )
+     
+     # Convert SQLAlchemy model to Pydantic model
+-    loan_account_out = LoanAccount.model_validate(loan_account)
++    loan_account_out = LoanAccountSchema.model_validate(loan_account)
+     return {"status": "success", "data": loan_account_out.model_dump()}
+ 
+ 
+@@ -115,7 +115,7 @@ def update_loan_account(
+     )
+     
+     # Convert SQLAlchemy model to Pydantic model
+-    loan_account_out = LoanAccount.model_validate(updated_loan_account)
++    loan_account_out = LoanAccountSchema.model_validate(updated_loan_account)
+     return {"status": "success", "data": loan_account_out.model_dump()}
+ 
+ 
+@@ -201,3 +201,27 @@ def apply_late_fee(
+         )
+     
+     return {"status": "success", "data": fee_result}
++
++
++@router.get("/loan-accounts/users/{user_id}", response_model=DataResponse)
++def get_user_loan_accounts(
++    user_id: int,
++    db: Session = Depends(get_db)
++):
++    """Get all loan accounts for a user."""
++    from app.domain.models.models import LoanAccount, User
++    
++    # Check if user exists
++    user = db.query(User).filter(User.id == user_id, User.is_deleted == False).first()
++    if not user:
++        raise HTTPException(
++            status_code=status.HTTP_404_NOT_FOUND,
++            detail=f"User with ID {user_id} not found"
++        )
++    
++    # Get loan accounts
++    loan_accounts = db.query(LoanAccount).filter(LoanAccount.user_id == user_id).all()
++    
++    # Convert SQLAlchemy models to Pydantic models
++    loan_accounts_out = [LoanAccountSchema.model_validate(loan_account) for loan_account in loan_accounts]
++    return {"status": "success", "data": {"loan_accounts": loan_accounts_out}}
+diff --git a/app/api/routes/transactions.py b/app/api/routes/transactions.py
+index b595429..8de99b3 100644
+--- a/app/api/routes/transactions.py
++++ b/app/api/routes/transactions.py
+@@ -110,7 +110,7 @@ def get_loan_account_transactions(
+     
+     # Convert SQLAlchemy models to Pydantic models
+     transactions_out = [Transaction.model_validate(transaction).model_dump() for transaction in transactions]
+-    return {"status": "success", "data": transactions_out}
++    return {"status": "success", "data": {"transactions": transactions_out}}
+ 
+ 
+ @router.get("/loan-accounts/{loan_account_id}/statement", response_model=DataResponse)
+diff --git a/app/api/schemas/schemas.py b/app/api/schemas/schemas.py
+index 5ef8c6a..3f82611 100644
+--- a/app/api/schemas/schemas.py
++++ b/app/api/schemas/schemas.py
+@@ -119,9 +119,18 @@ class CardInDB(CardBase):
+ 
+ 
+ class Card(CardInDB):
++    """Card schema for responses."""
+     pass
+ 
+ 
++class CardList(BaseModel):
++    """Schema for a list of cards."""
++    cards: List[Card]
++
++    class Config:
++        from_attributes = True
++
++
+ # Loan Account schemas
+ class LoanAccountBase(BaseModel):
+     credit_limit: float = Field(..., gt=0)
+@@ -158,9 +167,18 @@ class LoanAccountInDB(LoanAccountBase):
+ 
+ 
+ class LoanAccount(LoanAccountInDB):
++    """Loan account schema for responses."""
+     pass
+ 
+ 
++class LoanAccountList(BaseModel):
++    """Schema for a list of loan accounts."""
++    loan_accounts: List[LoanAccount]
++
++    class Config:
++        from_attributes = True
++
++
+ # Repayment schemas
+ class RepaymentBase(BaseModel):
+     amount: float = Field(..., gt=0)
+diff --git a/test_script.py b/test_script.py
+index 65ee2c2..23b2931 100644
+--- a/test_script.py
++++ b/test_script.py
+@@ -190,6 +190,30 @@ class LMSClient:
+         print(f"Unlocked card {card_id}")
+         return result
+ 
++    def get_card(self, card_id: int) -> Dict:
++        """Get card details by ID."""
++        card = self._make_request("GET", f"/cards/{card_id}")
++        print(f"Retrieved card details for card {card_id}")
++        return card
++
++    def get_all_cards(self, user_id: int) -> List[Dict]:
++        """Get all cards for a user."""
++        cards = self._make_request("GET", f"/cards/users/{user_id}")
++        print(f"Retrieved all cards for user {user_id}")
++        return cards
++
++    def get_all_loan_accounts(self, user_id: int) -> List[Dict]:
++        """Get all loan accounts for a user."""
++        loan_accounts = self._make_request("GET", f"/loan-accounts/users/{user_id}")
++        print(f"Retrieved all loan accounts for user {user_id}")
++        return loan_accounts
++
++    def get_loan_account_transactions(self, loan_account_id: int) -> List[Dict]:
++        """Get all transactions for a loan account."""
++        transactions = self._make_request("GET", f"/transactions/loan-accounts/{loan_account_id}/transactions")
++        print(f"Retrieved all transactions for loan account {loan_account_id}")
++        return transactions
++
+     # Repayment Management
+     def get_repayment_options(self, loan_account_id: int) -> Dict:
+         """Get repayment options for a loan account."""
+@@ -315,6 +339,16 @@ def populate_sample_data():
+         time.sleep(1)  # Small delay for demonstration
+         client.unlock_card(virtual_card["id"])
+ 
++        # Get card details
++        print("\n=== Getting Card Details ===")
++        card_details = client.get_card(virtual_card["id"])
++        print(f"Card details: {json.dumps(card_details, indent=2)}")
++
++        # Get all cards for user
++        print("\n=== Getting All Cards for User ===")
++        all_cards = client.get_all_cards(user1["id"])
++        print(f"All cards for user: {json.dumps(all_cards, indent=2)}")
++
+         print("\n=== Simulating Account Activity ===")
+         # Add some purchases to build up a balance
+         purchases = [
+@@ -349,6 +383,16 @@ def populate_sample_data():
+         loan_account1 = client.get_loan_account(loan_account1["id"])
+         print(f"Balance after interest and fees: £{loan_account1['current_balance']:.2f}")
+ 
++        # Get all loan accounts for user
++        print("\n=== Getting All Loan Accounts for User ===")
++        all_loan_accounts = client.get_all_loan_accounts(user1["id"])
++        print(f"All loan accounts for user: {json.dumps(all_loan_accounts, indent=2)}")
++
++        # Get loan account transactions
++        print("\n=== Getting Loan Account Transactions ===")
++        transactions = client.get_loan_account_transactions(loan_account1["id"])
++        print(f"All transactions for loan account: {json.dumps(transactions, indent=2)}")
++
+         print("\n=== Demonstrating Repayment Options ===")
+         # Get repayment options
+         options = client.get_repayment_options(loan_account1["id"])
+-- 
+2.39.2 (Apple Git-143)
+
